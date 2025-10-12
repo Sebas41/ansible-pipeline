@@ -1,116 +1,109 @@
 ---
-- name: Instalar y configurar Nginx
-  hosts: nginx
-  become: true
-  tasks:
-    - name: Actualizar cache de paquetes
-      apt:
-        update_cache: yes
-
-    - name: Instalar Nginx
-      apt:
-        name: nginx
-        state: present
-
-    - name: Iniciar servicio Nginx
-      systemd:
-        name: nginx
-        state: started
-        enabled: yes
-
-    - name: Cambiar propietario de /var/www/html
-      file:
-        path: /var/www/html
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        recurse: yes
-
-- name: Instalación de Docker y Docker Compose en Ubuntu
+- name: "Provisionar VM: Docker/Compose + Jenkins + Sonar + Nginx (Docker)"
   hosts: jenkins
   become: true
-  
+
+  vars:
+    compose_dir: /opt/stack
+
   tasks:
-    # Actualizar el cache de paquetes
-    - name: Actualizar el cache de paquetes
+    - name: "Actualizar cache de paquetes"
       apt:
         update_cache: yes
+        cache_valid_time: 3600
 
-    # Instalar dependencias para Docker
-    - name: Instalar dependencias para Docker
+    - name: "Instalar dependencias base"
       apt:
-        name: 
-          - apt-transport-https
+        name:
           - ca-certificates
+          - gnupg
           - curl
-          - gnupg-agent
-          - software-properties-common
+          - git
+          - unzip
+        state: present
 
-    # Agregar la clave GPG oficial de Docker
-    - name: Agregar la clave GPG oficial de Docker
+    - name: "Agregar llave GPG de Docker"
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
 
-    # Agregar el repositorio de Docker al sources.list.d
-    - name: Agregar el repositorio de Docker al sources.list.d
+    - name: "Agregar repo de Docker"
       apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
         state: present
+        filename: docker
 
-    # Actualizar el cache de paquetes de nuevo (para que encuentre el paquete de Docker)
-    - name: Actualizar el cache de paquetes de nuevo (para que encuentre el paquete de Docker)
+    - name: "Instalar Docker engine y plugin de Compose (v2)"
       apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
         update_cache: yes
 
-    # Instalar Docker
-    - name: Instalar Docker
-      apt:
-        name: docker-ce
-        state: present
-
-    # Añadir el usuario actual al grupo de Docker
-    - name: Añadir el usuario actual al grupo de Docker
+    - name: "Agregar usuario actual al grupo docker"
       user:
         name: "{{ ansible_user }}"
         groups: docker
         append: yes
 
-    # Instalar Docker Compose
-    - name: Instalar Docker Compose
-      shell: |
-        curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
-      args:
-        creates: /usr/local/bin/docker-compose
-    
-    - name: Establecer vm.max_map_count en el kernel
+    - name: "Asegurar vm.max_map_count (SonarQube)"
       sysctl:
         name: vm.max_map_count
         value: "262144"
         state: present
         reload: yes
+
+    - name: "Crear carpeta del stack"
+      file:
+        path: "{{ compose_dir }}"
+        state: directory
+        mode: "0755"
     
-    - name: Copiar archivo de configuración de Nginx
+    - name: "Crear subdirectorios del stack (jenkins/nginx)"
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ compose_dir }}/jenkins"
+        - "{{ compose_dir }}/nginx"
+
+    - name: "Subir docker-compose.yml"
       copy:
         src: docker-compose.yml
-        dest: /home/{{ ansible_user }}/docker-compose.yml
+        dest: "{{ compose_dir }}/docker-compose.yml"
+        mode: "0644"
 
-    # Ejecutar un archivo docker-compose.yml
-    - name: Ejecutar docker-compose.yml
-      command: docker-compose up -d
+    - name: "Subir plugins.txt para Jenkins"
+      copy:
+        src: plugins.txt
+        dest: "{{ compose_dir }}/jenkins/plugins.txt"
+        mode: "0644"
+
+    - name: "Subir nginx.conf"
+      copy:
+        src: nginx.conf
+        dest: "{{ compose_dir }}/nginx/nginx.conf"
+        mode: "0644"
+
+    - name: "Levantar stack"
+      shell: |
+        docker compose -f {{ compose_dir }}/docker-compose.yml pull
+        docker compose -f {{ compose_dir }}/docker-compose.yml up -d
       args:
-        chdir: /home/{{ ansible_user }}/
-      become_user: "{{ ansible_user }}"
-      become_method: su
+        chdir: "{{ compose_dir }}"
 
-    - name: Instalar plugins jenkins
-      command: docker exec -it jenkins jenkins-plugin-cli --plugin-file /plugins.txt
-      become_user: "{{ ansible_user }}"
-      become_method: su
+    - name: "Instalar plugins de Jenkins desde plugins.txt"
+      shell: |
+        docker exec jenkins jenkins-plugin-cli --plugin-file /plugins.txt
+      register: plugin_install
+      changed_when: "'No changes' not in plugin_install.stdout"
       notify: restart jenkins
 
   handlers:
     - name: restart jenkins
-      command: sudo docker restart jenkins
-      become_user: "{{ ansible_user }}"
-      become_method: su
+      shell: docker restart jenkins

@@ -1,0 +1,5 @@
+git:latest
+workflow-aggregator:latest
+blueocean:latest
+sonar:latest
+configuration-as-code:latest
