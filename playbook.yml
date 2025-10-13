@@ -1,7 +1,11 @@
 ---
-- name: "Provisionar VM: Docker/Compose + Jenkins + Sonar + Nginx (Docker)"
+# ============================================
+# PLAYBOOK 1: VM Jenkins (Jenkins + SonarQube + PostgreSQL)
+# ============================================
+- name: "Provisionar VM Jenkins: Docker + Jenkins + SonarQube + PostgreSQL"
   hosts: jenkins
   become: true
+  tags: ['jenkins']
 
   vars:
     compose_dir: /opt/stack
@@ -63,18 +67,15 @@
         state: directory
         mode: "0755"
     
-    - name: "Crear subdirectorios del stack (jenkins/nginx)"
+    - name: "Crear subdirectorio jenkins"
       file:
-        path: "{{ item }}"
+        path: "{{ compose_dir }}/jenkins"
         state: directory
         mode: "0755"
-      loop:
-        - "{{ compose_dir }}/jenkins"
-        - "{{ compose_dir }}/nginx"
 
-    - name: "Subir docker-compose.yml"
+    - name: "Subir docker-compose-jenkins.yml"
       copy:
-        src: docker-compose.yml
+        src: docker-compose-jenkins.yml
         dest: "{{ compose_dir }}/docker-compose.yml"
         mode: "0644"
 
@@ -84,26 +85,119 @@
         dest: "{{ compose_dir }}/jenkins/plugins.txt"
         mode: "0644"
 
-    - name: "Subir nginx.conf"
-      copy:
-        src: nginx.conf
-        dest: "{{ compose_dir }}/nginx/nginx.conf"
-        mode: "0644"
+    - name: "Detener contenedores existentes (si existen)"
+      shell: docker compose -f {{ compose_dir }}/docker-compose.yml down
+      args:
+        chdir: "{{ compose_dir }}"
+      ignore_errors: yes
 
-    - name: "Levantar stack"
+    - name: "Levantar stack Jenkins"
       shell: |
         docker compose -f {{ compose_dir }}/docker-compose.yml pull
         docker compose -f {{ compose_dir }}/docker-compose.yml up -d
       args:
         chdir: "{{ compose_dir }}"
 
+    - name: "Esperar a que Jenkins esté listo"
+      wait_for:
+        host: localhost
+        port: 80
+        delay: 10
+        timeout: 300
+
     - name: "Instalar plugins de Jenkins desde plugins.txt"
       shell: |
-        docker exec jenkins jenkins-plugin-cli --plugin-file /plugins.txt
+        docker exec jenkins jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
       register: plugin_install
       changed_when: "'No changes' not in plugin_install.stdout"
+      failed_when: false
       notify: restart jenkins
 
   handlers:
     - name: restart jenkins
       shell: docker restart jenkins
+
+# ============================================
+# PLAYBOOK 2: VM Nginx (Reverse Proxy)
+# ============================================
+- name: "Provisionar VM Nginx: Docker + Nginx como Reverse Proxy"
+  hosts: nginx
+  become: true
+  tags: ['nginx']
+
+  vars:
+    compose_dir: /opt/nginx
+    jenkins_ip: "130.213.10.92"  # IP de la VM Jenkins
+
+  tasks:
+    - name: "Actualizar cache de paquetes"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: "Instalar dependencias base"
+      apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - curl
+        state: present
+
+    - name: "Agregar llave GPG de Docker"
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: "Agregar repo de Docker"
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+        filename: docker
+
+    - name: "Instalar Docker engine y plugin de Compose (v2)"
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: "Agregar usuario actual al grupo docker"
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: "Crear carpeta del stack nginx"
+      file:
+        path: "{{ compose_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Crear subdirectorio nginx"
+      file:
+        path: "{{ compose_dir }}/nginx"
+        state: directory
+        mode: "0755"
+
+    - name: "Subir docker-compose-nginx.yml"
+      copy:
+        src: docker-compose-nginx.yml
+        dest: "{{ compose_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: "Subir nginx.conf con IPs actualizadas"
+      copy:
+        src: nginx-proxy.conf
+        dest: "{{ compose_dir }}/nginx/nginx.conf"
+        mode: "0644"
+
+    - name: "Levantar stack Nginx"
+      shell: |
+        docker compose -f {{ compose_dir }}/docker-compose.yml pull
+        docker compose -f {{ compose_dir }}/docker-compose.yml up -d
+      args:
+        chdir: "{{ compose_dir }}"
