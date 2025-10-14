@@ -1,0 +1,40 @@
+---
+- name: "Actualizar aplicación de teclado"
+  hosts: nginx
+  become: true
+
+  tasks:
+    - name: "Limpiar directorio temporal"
+      file:
+        path: /tmp/keyboard-app
+        state: absent
+
+    - name: "Clonar última versión del repositorio"
+      git:
+        repo: 'https://github.com/Sebas41/Teclado.git'
+        dest: /tmp/keyboard-app
+        version: main
+        force: yes
+
+    - name: "Actualizar archivos de la aplicación"
+      shell: |
+        rm -rf /var/www/keyboard-app/*
+        cp -r /tmp/keyboard-app/* /var/www/keyboard-app/
+        chown -R adminuser:adminuser /var/www/keyboard-app
+
+    - name: "Reiniciar Nginx"
+      shell: docker restart nginx
+
+    - name: "Limpiar directorio temporal"
+      file:
+        path: /tmp/keyboard-app
+        state: absent
+
+    - name: "Verificar que la app esté accesible"
+      uri:
+        url: "http://localhost/keyboard/"
+        status_code: 200
+      register: result
+      retries: 3
+      delay: 2
+      until: result.status == 200

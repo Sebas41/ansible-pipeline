@@ -1,49 +1,53 @@
+# templates/nginx.conf.j2
 server {
   listen 80;
   server_name _;
 
-  # Proxy a Jenkins (subpath /jenkins/)
+  # Jenkins
   location /jenkins/ {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    
-    # Headers adicionales para Jenkins
     proxy_set_header X-Forwarded-Host $host;
     proxy_set_header X-Forwarded-Port $server_port;
-    
-    # Timeouts más largos
+
     proxy_connect_timeout 150;
     proxy_send_timeout 100;
     proxy_read_timeout 100;
     proxy_buffers 4 32k;
-    client_max_body_size 8m;
+    client_max_body_size 16m;
     client_body_buffer_size 128k;
-    
-    # Apunta a la VM Jenkins en el puerto 80 (donde estará expuesto Jenkins)
-    proxy_pass http://{{ jenkins_ip }}/jenkins/;
-    proxy_redirect http://{{ jenkins_ip }}/jenkins/ /jenkins/;
+
+    # usa :8080 si Jenkins está ahí
+    proxy_pass http://{{ jenkins_ip }}:8080/jenkins/;
+    proxy_redirect default;
   }
 
-  # Proxy a SonarQube en /sonar/ usando el puerto 9000
+  # SonarQube
   location /sonar/ {
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    
-    # Reescribir la URL para quitar /sonar/
-    rewrite ^/sonar/(.*) /$1 break;
-    
-    # Apunta a la VM Jenkins usando el puerto 9000 (abierto en firewall)
-    proxy_pass http://{{ jenkins_ip }}:9000;
-    proxy_redirect http://{{ jenkins_ip }}:9000/ /sonar/;
+    proxy_pass http://{{ jenkins_ip }}:9000/sonar/;
+    proxy_redirect default;
+  }
+
+  # App estática
+  location /keyboard/ {
+    alias /var/www/keyboard-app/;
+    index index.html;
+    try_files $uri $uri/ /index.html;
   }
 
   # Página de estado
   location = / {
-    return 200 'Nginx Reverse Proxy OK - Services: /jenkins/ | /sonar/\n';
+    return 200 'Nginx Reverse Proxy OK - Services: /jenkins/ | /sonar/ | /keyboard/\n';
     add_header Content-Type text/plain;
   }
 }
