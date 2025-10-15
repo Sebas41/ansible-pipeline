@@ -24,6 +24,15 @@ El entorno implementa un flujo completo de **CI/CD**, donde Jenkins analiza el c
 | **Jenkins + SonarQube + PostgreSQL** | `130.213.10.92` | CI server + análisis de código. |
 | **Nginx (Reverse Proxy + Static Site)** | `130.131.27.80` | Proxy reverso + despliegue de app estática. |
 
+
+La VM Jenkins (130.213.10.92) tiene como propósito principal funcionar como servidor de aplicaciones y servicios. En ella se alojan Jenkins, SonarQube y PostgreSQL, que son los componentes más pesados del sistema. Entre sus ventajas, destaca su alta capacidad de procesamiento, ideal para ejecutar builds y análisis de código de forma eficiente. Además, su mantenimiento es más flexible, ya que se puede reiniciar o actualizar sin interrumpir el funcionamiento del proxy o afectar a los usuarios externos.
+
+Por otro lado, la VM Nginx (130.131.27.80) actúa como reverse proxy y punto de entrada único a toda la infraestructura. Esta máquina solo contiene Nginx, lo que la hace liviana y eficiente. Protege y canaliza el tráfico hacia los servicios internos. Entre sus principales ventajas se encuentran el hecho de ofrecer un punto de acceso centralizado y mejorar la seguridad, ya que filtra y valida las peticiones antes de que lleguen a Jenkins. Además, permite implementar balanceo de carga en caso de añadir más VMs Jenkins, administrar certificados SSL/TLS desde un solo lugar, aplicar limitación de tasa (rate limiting) para controlar el tráfico y centralizar los logs de acceso, facilitando el monitoreo y la auditoría del sistema.
+
+Para la VM Jenkins (130.213.10.92) tuvimos que ejecutar el siguiente comando para poder acceder como super usuario e instalar ssh a la máquina para que Jenkins reconozca ssh y así se pueda ejecutar el pipeline, ya que tuvimos problemas con la imagen de Jenkins al no tener ssh por defecto.
+
+![alt text](imagenes/ComandosJenkins.jpeg)
+
 ---
 
 ## Estructura del repositorio
@@ -55,9 +64,6 @@ ansible-pipeline-server/
 
 ---
 
-La VM Jenkins (130.213.10.92) tiene como propósito principal funcionar como servidor de aplicaciones y servicios. En ella se alojan Jenkins, SonarQube y PostgreSQL, que son los componentes más pesados del sistema. Entre sus ventajas, destaca su alta capacidad de procesamiento, ideal para ejecutar builds y análisis de código de forma eficiente. Además, su mantenimiento es más flexible, ya que se puede reiniciar o actualizar sin interrumpir el funcionamiento del proxy o afectar a los usuarios externos.
-
-Por otro lado, la VM Nginx (130.131.27.80) actúa como reverse proxy y punto de entrada único a toda la infraestructura. Esta máquina solo contiene Nginx, lo que la hace liviana y eficiente. Protege y canaliza el tráfico hacia los servicios internos. Entre sus principales ventajas se encuentran el hecho de ofrecer un punto de acceso centralizado y mejorar la seguridad, ya que filtra y valida las peticiones antes de que lleguen a Jenkins. Además, permite implementar balanceo de carga en caso de añadir más VMs Jenkins, administrar certificados SSL/TLS desde un solo lugar, aplicar limitación de tasa (rate limiting) para controlar el tráfico y centralizar los logs de acceso, facilitando el monitoreo y la auditoría del sistema.
 
 ## Archivos clave
 
@@ -157,12 +163,26 @@ ansible-playbook -i inventories/prod/hosts.ini playbook.yml --ask-pass
 ## Evidencia visual
 
 ### Jenkins VM
-![Jenkins VM](imagenes/jenkins-vm.png)
+![alt text](imagenes/Jenkins.png)
+
+## Ejecución de la pipeline
+![alt text](imagenes/EjecucionJenkins.jpeg)
 
 ### Nginx VM
 ![Nginx VM](imagenes/nginx-vm.png)
 
 ### SonarQube
-![SonarQube puerto 9000](imagenes/sonar-puerto.png)
+![alt text](imagenes/SonarQube.jpeg)
+
+## App Teclado
+
+Visitamos http://130.131.27.80/keyboard/
+
+![alt text](imagenes/ColorOriginal.jpeg)
+
+## Jenkins detecta cambios en la app de teclado
+
+![alt text](imagenes/CambioDeColor.jpeg)
+![alt text](imagenes/CambioColorTeclado.jpeg)
 
 ---
